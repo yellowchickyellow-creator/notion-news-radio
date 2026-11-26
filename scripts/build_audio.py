@@ -22,9 +22,15 @@ TEXT_TYPES = {
 
 
 def get_json(session: requests.Session, path: str, params=None) -> dict:
-    resp = session.get(f"{BLOCKS_URL}/{path}", params=params, timeout=35)
-    resp.raise_for_status()
-    return resp.json()
+    for attempt in range(4):
+        resp = session.get(f"{BLOCKS_URL}/{path}", params=params, timeout=35)
+        if resp.status_code in {429, 500, 502, 503, 504} and attempt < 3:
+            time.sleep(min(30, max(1, int(resp.headers.get("Retry-After", 2 ** attempt)))))
+            continue
+        if resp.status_code in {401, 403, 404}:
+            raise ValueError("Notionのキー・ページID・対象ページへのインテグレーション接続を確認してください")
+        resp.raise_for_status()
+        return resp.json()
 
 
 def extract_text(block: dict) -> str:
@@ -43,8 +49,8 @@ def extract_text(block: dict) -> str:
 
 
 def collect_blocks(session: requests.Session, parent_id: str, depth: int = 0):
-    if depth > 3:
-        return [], []
+    if depth > 30:
+        raise ValueError("Notion本文の階層が深すぎます。全文を保証できないため停止します")
     parts, edited = [], []
     cursor = None
     while True:
@@ -72,9 +78,9 @@ def collect_blocks(session: requests.Session, parent_id: str, depth: int = 0):
     return parts, edited
 
 
-def read_today_script():
+def read_today_script(page_id=None):
     token = os.environ["NOTION_API_KEY"].strip()
-    page_id = os.environ["NOTION_PAGE_ID"].strip()
+    page_id = page_id or os.environ["NOTION_PAGE_ID"].strip()
     with requests.Session() as session:
         session.headers.update({
             "Authorization": f"Bearer {token}",
@@ -95,7 +101,7 @@ async def save_mp3(script: str, path: Path):
     voice = os.environ.get("TTS_VOICE", "ja-JP-NanamiNeural")
     rate = os.environ.get("TTS_RATE", "+0%")
     # edge-tts側が長文を分割して処理する。WindowsやEdge本体は不要。
-    await edge_tts.Communicate(script, voice=voice, rate=rate).save(str(path))
+    await asyncio.wait_for(edge_tts.Communicate(script, voice=voice, rate=rate).save(str(path)), timeout=600)
     if path.stat().st_size < 8192:
         raise RuntimeError("音声ファイルが小さすぎます。音声生成が失敗した可能性があります")
 
