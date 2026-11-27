@@ -56,7 +56,12 @@ def compose_bgm(path, evening=False):
 
 
 def mix(voice, output, episode, temp):
-    seconds = duration(voice)
+    # Decode the entire stream before measuring. The TTS MP3 can contain multiple segments.
+    decoded = temp / 'voice.wav'
+    command(['ffmpeg', '-v', 'error', '-y', '-i', str(voice), '-map', '0:a:0',
+             '-ac', '1', '-ar', '24000', '-c:a', 'pcm_s16le', str(decoded)])
+    with wave.open(str(decoded), 'rb') as wav:
+        seconds = wav.getnframes() / wav.getframerate()
     if seconds <= 0:
         raise ValueError('音声の長さが不正です')
     if os.environ.get('BGM_ENABLED', 'true').lower() == 'false':
@@ -64,14 +69,15 @@ def mix(voice, output, episode, temp):
     else:
         music = temp / 'bgm.wav'
         compose_bgm(music, episode == 'evening')
-        filters = (f'[0:a]loudnorm=I=-16:TP=-2:LRA=7[v];'
+        filters = (f'[0:a]loudnorm=I=-16:TP=-2:LRA=7,aresample=24000[v];'
                    f'[1:a]volume=0.035,afade=t=in:d=2,afade=t=out:st={max(0, seconds-3)}:d=3[b];'
                    '[v][b]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95:level=0[out]')
-        command(['ffmpeg', '-v', 'error', '-y', '-i', str(voice), '-stream_loop', '-1', '-i', str(music),
-                 '-filter_complex', filters, '-map', '[out]', '-t', str(seconds), '-ar', '24000',
+        command(['ffmpeg', '-v', 'error', '-y', '-i', str(decoded), '-stream_loop', '-1', '-i', str(music),
+                 '-filter_complex', filters, '-map', '[out]', '-ar', '24000',
                  '-c:a', 'libmp3lame', '-b:a', '96k', str(output)])
     actual = duration(output)
     if abs(actual - seconds) > 1 or output.stat().st_size < 8192:
+        print(f'::warning::音声尺検証: 合成前 {seconds:.2f}秒 / 合成後 {actual:.2f}秒', flush=True)
         raise ValueError('合成した音声の長さ・サイズの検証に失敗しました')
     return actual
 
