@@ -34,8 +34,14 @@ jobs:
       - name: 依存ライブラリ
         run: |
           python -m pip install -r requirements.txt
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            # Use only the runner's signed Ubuntu sources for Ubuntu packages.
+            apt_sources=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o Acquire::Retries=3)
+            sudo apt-get "${apt_sources[@]}" update
+            sudo apt-get "${apt_sources[@]}" install -y ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
       - name: 全文取得・番組分離の検証
         run: |
           python -m unittest discover -s tests -v
@@ -61,6 +67,6 @@ jobs:
       - name: 公開内容の検証
         run: python scripts/verify_public.py
       - name: 番組ごとの更新結果
-        if: always()
+        if: ${{ !cancelled() && hashFiles('build-report.json') != '' }}
         run: |
           python -c "import json; from pathlib import Path; p=Path('build-report.json'); assert p.exists(), '生成処理が完了していません'; r=json.loads(p.read_text()); assert not r['failures'], '更新失敗（公開可能な旧音声は維持）: '+str(r['failures'])"
