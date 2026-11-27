@@ -114,20 +114,26 @@ def main():
              'evening': os.environ.get('NOTION_EVENING_PAGE_ID', '').strip() or '424c2f0d-3b78-81d7-82ab-ee281bf1ffb1'}
     episodes, failures = {}, []
     for episode, (stem, title) in EPISODES.items():
+        stage = 'Notion原稿取得'
         try:
             script_date = datetime.now(source.TZ).date()
             for attempt in range(3):
                 try:
                     script = source.read_today_script(pages[episode])
                     break
-                except RuntimeError:
+                except RuntimeError as error:
+                    if str(error).startswith('Notion本文が今日更新されていません（本文最終更新: '):
+                        print(f'{title}: {error}', flush=True)
                     if attempt == 2:
                         raise
                     time.sleep(90)
+            print(f'{title}: Notion原稿 {len(script)}文字を取得', flush=True)
             with tempfile.TemporaryDirectory() as directory:
                 temp = Path(directory)
                 voice, final = temp / 'voice.mp3', temp / 'final.mp3'
+                stage = '読み上げ音声生成'
                 asyncio.run(source.save_mp3(script, voice))
+                stage = 'BGM合成・尺検証'
                 seconds = mix(voice, final, episode, temp)
                 now = datetime.now(source.TZ)
                 if now.date() != script_date:
@@ -145,7 +151,17 @@ def main():
             print(f'{title}: {len(script)}文字 / {seconds:.1f}秒')
         except Exception as error:
             # Do not log response bodies, text, tokens or request headers.
-            print(f'::warning::{title}の更新失敗 ({type(error).__name__})。Notion接続・当日更新・音声サービスを確認してください。')
+            detail = ''
+            if stage == 'Notion原稿取得' and isinstance(error, ValueError):
+                for message in (
+                    'Notionのキー・ページID・対象ページへのインテグレーション接続を確認してください',
+                    'Notionの原稿が100文字未満です。ページID、本文、アクセス権を確認してください',
+                    'Notion本文の階層が深すぎます。全文を保証できないため停止します',
+                ):
+                    if str(error) == message:
+                        detail = f'。{message}'
+                        break
+            print(f'::warning::{title}の更新失敗: {stage} ({type(error).__name__}){detail}', flush=True)
             failures.append(episode)
             episodes[episode] = restore(episode)
     Path('build-report.json').write_text(json.dumps({'failures': failures}), encoding='utf-8')
