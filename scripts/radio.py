@@ -70,7 +70,7 @@ def mix(voice, output, episode, temp):
         music = temp / 'bgm.wav'
         compose_bgm(music, episode == 'evening')
         filters = (f'[0:a]loudnorm=I=-16:TP=-2:LRA=7,aresample=24000[v];'
-                   f'[1:a]volume=0.035,afade=t=in:d=2,afade=t=out:st={max(0, seconds-3)}:d=3[b];'
+                   f'[1:a]volume=0.10,afade=t=in:d=2,afade=t=out:st={max(0, seconds-3)}:d=3[b];'
                    '[v][b]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95:level=0[out]')
         command(['ffmpeg', '-v', 'error', '-y', '-i', str(decoded), '-stream_loop', '-1', '-i', str(music),
                  '-filter_complex', filters, '-map', '[out]', '-ar', '24000',
