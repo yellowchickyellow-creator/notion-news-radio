@@ -20,6 +20,12 @@ BASE = 'https://yellowchickyellow-creator.github.io/notion-news-radio/'
 EPISODES = {'morning': ('today', '朝のニュース'), 'evening': ('evening', '夜のひとやすみ')}
 
 
+def episode_voice(episode):
+    if episode == 'evening':
+        return os.environ.get('TTS_EVENING_VOICE', 'ja-JP-KeitaNeural')
+    return os.environ.get('TTS_MORNING_VOICE', os.environ.get('TTS_VOICE', 'ja-JP-NanamiNeural'))
+
+
 def command(args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=180).stdout
 
@@ -138,7 +144,8 @@ def main():
                 temp = Path(directory)
                 voice, final = temp / 'voice.mp3', temp / 'final.mp3'
                 stage = '読み上げ音声生成'
-                asyncio.run(source.save_mp3(script, voice))
+                selected_voice = episode_voice(episode)
+                asyncio.run(source.save_mp3(script, voice, voice=selected_voice))
                 stage = 'BGM合成・尺検証'
                 seconds = mix(voice, final, episode, temp)
                 now = datetime.now(source.TZ)
@@ -146,7 +153,7 @@ def main():
                     raise RuntimeError('生成中に日付が変わったため、翌日分として公開しません')
                 meta = {'date_jst': script_date.isoformat(), 'generated_at_jst': now.isoformat(),
                         'characters': len(script), 'duration_seconds': round(seconds, 2),
-                        'voice': os.environ.get('TTS_VOICE', 'ja-JP-NanamiNeural'),
+                        'voice': selected_voice,
                         'bgm': os.environ.get('BGM_ENABLED', 'true').lower() != 'false',
                         'audio_sha256': hashlib.sha256(final.read_bytes()).hexdigest(), 'retained': False}
                 shutil.copyfile(final, source.OUT / f'{stem}.mp3')

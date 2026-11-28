@@ -9,6 +9,16 @@ import build_audio as source
 import radio
 
 class RadioTests(unittest.TestCase):
+    def test_separate_voice_defaults(self):
+        with patch.dict(radio.os.environ, {}, clear=True):
+            self.assertEqual(radio.episode_voice('morning'), 'ja-JP-NanamiNeural')
+            self.assertEqual(radio.episode_voice('evening'), 'ja-JP-KeitaNeural')
+
+    def test_separate_voice_overrides(self):
+        with patch.dict(radio.os.environ, {'TTS_VOICE':'legacy', 'TTS_MORNING_VOICE':'morning', 'TTS_EVENING_VOICE':'evening'}, clear=True):
+            self.assertEqual(radio.episode_voice('morning'), 'morning')
+            self.assertEqual(radio.episode_voice('evening'), 'evening')
+
     def test_all_segments_pagination_and_deep_children(self):
         def block(text, child=False):
             return {'id': text, 'type': 'paragraph', 'paragraph': {'rich_text': [{'plain_text':text}, {'plain_text':'後半'}]}, 'has_children':child}
@@ -28,7 +38,7 @@ class RadioTests(unittest.TestCase):
     def test_evening_failure_keeps_morning_publishable(self):
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory)
-            def save(script,path): path.write_bytes(b'a'*9000)
+            def save(script,path,voice=None): path.write_bytes(b'a'*9000)
             def mix(voice,final,episode,temp): final.write_bytes(voice.read_bytes()); return 390
             with patch.object(source,'OUT',out), patch.object(source,'read_today_script',side_effect=['朝'*3000,ValueError('private')]), patch.object(source,'save_mp3',save), patch.object(radio.asyncio,'run'), patch.object(radio,'mix',mix), patch.object(radio,'restore',return_value=None), patch.object(radio.Path,'write_text',autospec=True) as write:
                 radio.main()

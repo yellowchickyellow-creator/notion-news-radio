@@ -97,8 +97,8 @@ def read_today_script(page_id=None):
     return script
 
 
-async def save_mp3(script: str, path: Path):
-    voice = os.environ.get("TTS_VOICE", "ja-JP-NanamiNeural")
+async def save_mp3(script: str, path: Path, voice=None):
+    voice = voice or os.environ.get("TTS_VOICE", "ja-JP-NanamiNeural")
     rate = os.environ.get("TTS_RATE", "+0%")
     # edge-tts側が長文を分割して処理する。WindowsやEdge本体は不要。
     await asyncio.wait_for(edge_tts.Communicate(script, voice=voice, rate=rate).save(str(path)), timeout=600)

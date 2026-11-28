@@ -63,7 +63,8 @@ jobs:
           NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
           NOTION_EVENING_PAGE_ID: '424c2f0d-3b78-81d7-82ab-ee281bf1ffb1'
           BGM_ENABLED: 'true'
-          TTS_VOICE: ja-JP-NanamiNeural
+          TTS_MORNING_VOICE: ja-JP-NanamiNeural
+          TTS_EVENING_VOICE: ja-JP-KeitaNeural
           TTS_RATE: '+0%'
         run: python scripts/radio.py
       - name: 公開済みの朝夜音声を再利用
