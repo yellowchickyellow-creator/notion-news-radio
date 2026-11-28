@@ -72,12 +72,16 @@ jobs:
         run: python scripts/podcast.py --migrate
       - name: ポッドキャストRSS生成・履歴保存
         env:
+          TEST_MORNING: ${{ github.event_name == 'push' && github.event.head_commit.message == 'Publish one-time next-day morning podcast test' }}
           TEST_EVENING: ${{ github.event_name == 'push' && github.event.head_commit.message == 'Publish one-time next-day evening podcast test' }}
           BGM_ENABLED: 'true'
+          TTS_MORNING_VOICE: ja-JP-NanamiNeural
           TTS_EVENING_VOICE: ja-JP-KeitaNeural
         run: |
           if [ "$TEST_EVENING" = "true" ]; then
             python scripts/podcast.py --test-evening
+          elif [ "$TEST_MORNING" = "true" ]; then
+            python scripts/podcast.py --test-morning
           else
             python scripts/podcast.py
           fi
