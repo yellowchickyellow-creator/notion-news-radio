@@ -6,6 +6,16 @@ on:
     - cron: '27 7 * * *'
       timezone: 'Asia/Tokyo'
   workflow_dispatch:
+    inputs:
+      reuse_public_audio:
+        description: '公開中の音声を再利用してRSSだけを更新'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/podcast.py'
+      - '.github/workflows/daily_news_audio.yml'
 
 permissions:
   contents: read
@@ -47,6 +57,7 @@ jobs:
           python -m unittest discover -s tests -v
           node tests/player.test.cjs
       - name: Notionから当日の原稿を取得してMP3生成
+        if: ${{ github.event_name != 'push' && !inputs.reuse_public_audio }}
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
@@ -55,6 +66,11 @@ jobs:
           TTS_VOICE: ja-JP-NanamiNeural
           TTS_RATE: '+0%'
         run: python scripts/radio.py
+      - name: 公開済みの朝夜音声を再利用
+        if: ${{ github.event_name == 'push' || inputs.reuse_public_audio }}
+        run: python scripts/podcast.py --migrate
+      - name: ポッドキャストRSS生成・履歴保存
+        run: python scripts/podcast.py
       - name: Pagesを設定
         uses: actions/configure-pages@v5
       - name: 公開用ファイルをアップロード

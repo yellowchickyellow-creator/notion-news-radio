@@ -5,6 +5,7 @@ import time
 import requests
 from radio import BASE, EPISODES
 from build_audio import OUT
+from podcast import verify_public
 
 expected = json.loads((OUT / 'episodes.json').read_text(encoding='utf-8'))
 for attempt in range(6):
@@ -23,7 +24,8 @@ for attempt in range(6):
         response = requests.get(BASE + suffix, timeout=35)
         response.raise_for_status()
         assert response.content == (OUT / 'index.html').read_bytes(), 'プレイヤーが一致しません'
-        print('公開HTML・朝夜の情報・MP3の一致を確認しました')
+        verify_public(OUT)
+        print('公開HTML・朝夜の情報・MP3・RSSの一致を確認しました')
         break
     except (requests.RequestException, AssertionError):
         if attempt == 5:
