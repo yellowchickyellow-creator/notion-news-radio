@@ -39,6 +39,16 @@ class PodcastTests(unittest.TestCase):
                 self.assertNotEqual(items[0].findtext('guid'),items[1].findtext('guid'))
                 self.assertEqual(items[1].find('enclosure').get('url'),podcast.BASE+history[show][0]['path'])
 
+    def test_test_episode_does_not_replace_real_guid(self):
+        meta = {'date_jst':'2026-11-29','generated_at_jst':'2026-11-29T01:00:00+09:00','duration_seconds':400}
+        normal = podcast.create_entry('evening',meta,b'a'*9000)
+        test = podcast.create_entry('evening',meta,b'b'*9000)
+        test['test'] = True
+        items = ET.fromstring(podcast.rss('evening',[normal,test])).findall('./channel/item')
+        self.assertNotEqual(items[0].findtext('guid'),items[1].findtext('guid'))
+        self.assertIn('【テスト】',items[1].findtext('title'))
+        self.assertNotEqual(items[0].find('enclosure').get('url'),items[1].find('enclosure').get('url'))
+
     def test_corrupt_history_aborts(self):
         with tempfile.TemporaryDirectory() as d, patch.object(podcast,'cover',return_value=b'png'):
             p=Path(d)

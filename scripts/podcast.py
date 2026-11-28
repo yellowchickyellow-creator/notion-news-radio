@@ -1,5 +1,7 @@
 """Build two independent podcast feeds without changing the daily player."""
+import asyncio
 import hashlib
+import tempfile
 import json
 import shutil
 import struct
@@ -7,14 +9,14 @@ import sys
 import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import requests
-from radio import BASE, EPISODES, duration
-from build_audio import OUT
+from radio import BASE, EPISODES, duration, mix, episode_voice
+from build_audio import OUT, save_mp3
 
 LIMIT = 30
 MANIFEST = 'podcast-history.json'
@@ -122,9 +124,12 @@ def rss(show, entries):
     for entry in entries:
         item = ET.SubElement(channel, 'item')
         d = date.fromisoformat(entry['date'])
-        add(item, 'title', f'{d.year}年{d.month}月{d.day}日｜{EPISODES[show][1]}')
-        add(item, 'description', description)
-        ET.SubElement(item, 'guid', {'isPermaLink': 'false'}).text = f'notion-news-radio:{show}:{entry["date"]}'
+        test = entry.get('test', False)
+        label = '【テスト】' if test else ''
+        add(item, 'title', f'{label}{d.year}年{d.month}月{d.day}日｜{EPISODES[show][1]}')
+        add(item, 'description', '翌日更新と男性音声の動作確認用。前回の原稿を再収録しています。' if test else description)
+        guid = f'notion-news-radio:{show}:{entry["date"]}'
+        ET.SubElement(item, 'guid', {'isPermaLink': 'false'}).text = guid + (':test' if test else '')
         add(item, 'pubDate', entry['pubdate'])
         add(item, f'{{{ITUNES}}}duration', entry['duration'])
         ET.SubElement(item, 'enclosure', {'url': BASE + entry['path'], 'length': str(entry['length']), 'type': 'audio/mpeg'})
@@ -151,7 +156,7 @@ def cover(show):
         return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
 
-def build(out, history=None, downloader=fetch):
+def build(out, history=None, downloader=fetch, test_evening=False):
     episodes = json.loads((out / 'episodes.json').read_text(encoding='utf-8'))
     old = previous_history() if history is None else history
     result = {}
@@ -160,20 +165,46 @@ def build(out, history=None, downloader=fetch):
         for entry in old[show]:
             if entry['path'] != episode_path(show, entry['date'], entry['sha256']):
                 raise ValueError('invalid history path')
-            if entry['date'] in known:
-                raise ValueError('duplicate history date')
-            known[entry['date']] = entry
+            key = (entry['date'], bool(entry.get('test')))
+            if key in known:
+                raise ValueError('duplicate history date and type')
+            known[key] = entry
         current = episodes.get(show)
         if current:
             audio = (out / (stem + '.mp3')).read_bytes()
             entry = create_entry(show, current, audio)
             # First published version for a date is immutable. Reruns cannot replace it.
-            if entry['date'] not in known:
+            key = (entry['date'], False)
+            if key not in known:
                 write_audio(out / entry['path'], audio, entry)
-                known[entry['date']] = entry
-            elif known[entry['date']]['sha256'] == entry['sha256']:
+                known[key] = entry
+            elif known[key]['sha256'] == entry['sha256']:
                 write_audio(out / entry['path'], audio, entry)
-        entries = sorted(known.values(), key=lambda e: e['date'], reverse=True)[:LIMIT]
+        if test_evening and show == 'evening':
+            if not current:
+                raise RuntimeError('No evening audio for test')
+            day = (date.fromisoformat(current['date_jst']) + timedelta(days=1)).isoformat()
+            key = (day, True)
+            if key not in known:
+                from zoneinfo import ZoneInfo
+                now = datetime.now(ZoneInfo('Asia/Tokyo'))
+                script = ('こんばんは。これは翌日分の自動再生を確かめるためのテスト放送です。'
+                          '男性ナレーターで、前回の夜の原稿を再収録します。\n'
+                          + (out / (stem + '.txt')).read_text(encoding='utf-8'))
+                with tempfile.TemporaryDirectory() as directory:
+                    tmp = Path(directory)
+                    voice, final = tmp / 'voice.mp3', tmp / 'final.mp3'
+                    asyncio.run(save_mp3(script, voice, voice=episode_voice('evening')))
+                    seconds = mix(voice, final, 'evening', tmp)
+                    audio = final.read_bytes()
+                entry = create_entry(show, {'date_jst': day, 'generated_at_jst': now.isoformat(),
+                                            'duration_seconds': seconds}, audio)
+                entry['test'] = True
+                entry['voice'] = episode_voice('evening')
+                write_audio(out / entry['path'], audio, entry)
+                known[key] = entry
+                print(f'Evening test published for {day}: {seconds:.1f}s, {entry["voice"]}')
+        entries = sorted(known.values(), key=lambda e: (e['date'], not e.get('test', False)), reverse=True)[:LIMIT]
         def restore(e):
             target = out / e['path']
             if not target.exists():
@@ -220,4 +251,4 @@ if __name__ == '__main__':
     if '--migrate' in sys.argv:
         migrate(OUT)
     else:
-        build(OUT)
+        build(OUT, test_evening='--test-evening' in sys.argv)

@@ -71,7 +71,16 @@ jobs:
         if: ${{ github.event_name == 'push' || inputs.reuse_public_audio }}
         run: python scripts/podcast.py --migrate
       - name: ポッドキャストRSS生成・履歴保存
-        run: python scripts/podcast.py
+        env:
+          TEST_EVENING: ${{ github.event_name == 'push' && github.event.head_commit.message == 'Publish one-time next-day evening podcast test' }}
+          BGM_ENABLED: 'true'
+          TTS_EVENING_VOICE: ja-JP-KeitaNeural
+        run: |
+          if [ "$TEST_EVENING" = "true" ]; then
+            python scripts/podcast.py --test-evening
+          else
+            python scripts/podcast.py
+          fi
       - name: Pagesを設定
         uses: actions/configure-pages@v5
       - name: 公開用ファイルをアップロード
